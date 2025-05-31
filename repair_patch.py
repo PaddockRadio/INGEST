@@ -34,7 +34,7 @@ ADMIN_EMAIL = paddockradiolive@gmail.com
 [EMAIL]
 IMAP_SERVER = imap.gmail.com
 EMAIL_ADDRESS = kbpaddockradio@gmail.com
-EMAIL_PASSWORD = mrkh easg blfb vsbh
+EMAIL_PASSWORD = 
 LABEL_PROCESSED = Processed
 LABEL_PENDING = Pending
 LABEL_ERROR = Error
@@ -48,16 +48,16 @@ OUTPUT_BITRATE = 128k
 ID3_GENRE_OVERWRITE = Featured
 
 [SFTP]
-SFTP_HOST = 144.126.215.156
-SFTP_PORT = 2022
-SFTP_USERNAME = pwuser
-SFTP_PASSWORD = prwifi01
+SFTP_HOST = 
+SFTP_PORT = 
+SFTP_USERNAME = 
+SFTP_PASSWORD = 
 SFTP_REMOTE_FOLDER = /upload/inbox/Featured/
 
 [WORDPRESS]
-WP_URL = https://paddockradio.net/xmlrpc.php
-WP_USERNAME = paddockradiolive@gmail.com
-WP_PASSWORD = prwifi01
+WP_URL = 
+WP_USERNAME = 
+WP_PASSWORD = 
 """)
 
 # ---------- Module Strings ----------
