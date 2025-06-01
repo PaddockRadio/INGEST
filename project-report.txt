@@ -1,0 +1,129 @@
+# Paddock Media Ingest System
+## Project Report (v0.8)
+
+### Overview
+
+This document outlines the design, decisions, architecture, and current capabilities of the **Paddock Media Ingest System**. The system is deployed on a DigitalOcean WordPress droplet and integrates with a remote AzuraCast SFTP server for radio broadcast automation.
+
+This report serves as a full handover and restart document. It assumes no prior knowledge and allows any future developer or automated system (including ChatGPT) to fully understand, test, repair, and continue this project using only this document and a copy of the current `repair_patch.py` rebuild script.
+
+---
+
+## 1. Objectives
+
+* Automate ingestion of musician/band submissions sent via email.
+* Validate and extract audio and document content.
+* Downsample and tag audio.
+* Upload finished audio to AzuraCast via SFTP.
+* Generate WordPress drafts from document content (pending full implementation).
+* Ensure all steps are batch-safe, verifiable, and repairable from a single script.
+
+---
+
+## 2. Core Workflow
+
+### Email Handling
+
+* Connects to Gmail via IMAP (`kbpaddockradio@gmail.com`).
+* Filters `UNSEEN` emails.
+* Downloads audio and document attachments.
+* Removes common subject-line prefixes like `Fwd:`.
+* Saves all content under a sanitized job folder inside `/Working`.
+
+### File Verification & Logging
+
+* Verifies that a valid audio and document file are present.
+* Extracts email body to `body.txt`.
+* Extracts text from `.docx`, `.pdf`, or `.txt` into `publish.txt`.
+* Renames `publish.txt` or `body.txt` to `Job_ID.txt`.
+* Sanitizes document content of unwanted headers (e.g., forwarded message headers).
+* Logs filetype statistics, errors, and content cleanup actions.
+
+### Audio Processing
+
+* Copies original audio to `/Temp/Job_ID` for staging.
+* Downsamples to 128kbps MP3 using `ffmpeg`.
+* Clears all previous metadata.
+* Injects new ID3 tags from filename structure.
+* Embeds `album_art*.jpg` images (if found).
+* Saves tagged file into `/SFTP` for final transfer.
+* Archives the original input to `/Archive`.
+
+### SFTP Upload
+
+* Uses `paramiko` to connect to SFTP at IP `144.126.215.156`, port `2022`.
+* Logs into `/upload/inbox/Featured/`.
+* Skips files that already exist.
+* Creates directory path if it doesn't exist.
+* Logs all file success/failure states.
+
+---
+
+## 3. Folder Structure
+
+```
+~/INGEST/
++-- Temp/         # Temporary audio staging
++-- Working/      # Email-specific extracted files
++-- Publish/      # (Reserved for WP use)
++-- SFTP/         # Verified audio files awaiting upload
++-- Logs/         # ingest.log, repair_patch.log
++-- Archive/      # Original audio/doc backups and results
++-- modules/      # All modular .py scripts
++-- ingest.py     # Entry point for full job cycle
+```
+
+---
+
+## 4. The Repair Patch Concept
+
+`repair_patch.py` is the **central recovery tool**.
+
+### Responsibilities:
+
+* Create all required folders.
+* Install all required pip dependencies.
+* Write a default, working `config.ini` with current server paths.
+* Generate all module files as working Python scripts:
+
+  * `constants.py`
+  * `logs.py`
+  * `config.py`
+  * `file_utils.py`
+  * `email_utils.py`
+  * `doc_utils.py`
+  * `audio_utils.py`
+  * `sftp_utils.py`
+  * `ingest.py`
+
+### Key Traits:
+
+* Fully standalone.
+* Can rebuild the entire system from a damaged or blank state.
+* Modular generation avoids quote escaping bugs using safe identifiers.
+* Generates logs for each repair run.
+
+This system guarantees continuity: **even if everything but the repair patch is lost, the project is recoverable.**
+
+---
+
+## 5. Current Status (v0.8)
+
+### ? Working:
+
+* Email parsing and folder creation.
+* Audio and document validation.
+* Audio downsampling and tagging.
+* Album art handling.
+* SFTP upload to AzuraCast `/upload/inbox/Featured/`.
+* Logging with elapsed time and ingest summaries.
+* Error-tolerant and silent processing.
+
+### ?? Planned / In Progress:
+
+* WordPress post creation from document text.
+* Email result table report to ADMIN\_EMAIL.
+* Log cleanup and archival batch controller.
+* Visual live-updating console tracker for queued jobs.
+* Full `clean.py` maintenance routine.
+
