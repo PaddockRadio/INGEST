@@ -1,7 +1,7 @@
 import os
 import logging
-from wordpress_xmlrpc import Client, WordPressPost
-from wordpress_xmlrpc.methods.posts import NewPost
+import requests
+from requests.auth import HTTPBasicAuth
 from modules.config import load_config
 from modules.constants import FOLDER_PATHS
 
@@ -9,7 +9,7 @@ def post_to_wordpress(folder, job_id):
     config = load_config()
     wp_url = config['WORDPRESS']['WP_URL']
     wp_user = config['WORDPRESS']['WP_USERNAME']
-    wp_pass = config['WORDPRESS']['WP_PASSWORD']
+    wp_app_password = config['WORDPRESS']['WP_APP_PASSWORD']
 
     text_file = os.path.join(folder, f"{job_id}.txt")
     if not os.path.isfile(text_file):
@@ -19,15 +19,22 @@ def post_to_wordpress(folder, job_id):
     with open(text_file, 'r') as f:
         content = f.read()
 
+    api_url = f"{wp_url.rstrip('/')}/wp-json/wp/v2/posts"
+    data = {
+        'title': job_id.replace("_", " "),
+        'content': content,
+        'status': 'draft'
+    }
+    auth = HTTPBasicAuth(wp_user, wp_app_password)
+
     try:
-        client = Client(wp_url, wp_user, wp_pass)
-        post = WordPressPost()
-        post.title = job_id.replace("_", " ")
-        post.content = content
-        post.post_status = 'draft'
-        client.call(NewPost(post))
-        logging.info(f"WordPress post created: {job_id}")
+        response = requests.post(api_url, data=data, auth=auth, timeout=30) # Added timeout
+        response.raise_for_status()  # This will raise an HTTPError for bad responses (4xx or 5xx)
+        logging.info(f"WordPress post created via REST API: {job_id}, Status: {response.status_code}")
         return True
-    except Exception as e:
-        logging.error(f"WordPress post failed for {job_id}: {e}")
+    except requests.exceptions.HTTPError as e:
+        logging.error(f"WordPress REST API post failed for {job_id}: HTTP Error: {e.response.status_code} - {e.response.text}")
+        return False
+    except requests.exceptions.RequestException as e:
+        logging.error(f"WordPress REST API post failed for {job_id}: {e}")
         return False
