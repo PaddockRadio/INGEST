@@ -9,7 +9,7 @@ from textwrap import dedent
 
 # ---------- Paths ----------
 CONFIG_PATH = os.path.expanduser("~/INGEST/config.ini")
-MODULES_DIR = os.path.expanduser("~/INGEST/modules")
+# MODULES_DIR = os.path.expanduser("~/INGEST/modules") # No longer strictly needed if write_file uses full base paths
 FOLDERS = [
     "~/INGEST/Temp",
     "~/INGEST/Working",
@@ -17,13 +17,14 @@ FOLDERS = [
     "~/INGEST/SFTP",
     "~/INGEST/Logs",
     "~/INGEST/Archive",
-    "~/INGEST/modules"
+    "~/INGEST/modules",
+    "~/INGEST/tests" # Added tests directory
 ]
 
 # ---------- Required Dependencies ----------
 REQUIRED_PACKAGES = [
-    "python-docx", "mutagen", "python_wordpress_xmlrpc",
-    "pymupdf", "beautifulsoup4", "lxml", "paramiko", "Pillow", "requests"
+    "python-docx", "mutagen", "pymupdf", "beautifulsoup4",
+    "lxml", "paramiko", "Pillow", "requests"
 ]
 
 # ---------- Config File ----------
@@ -57,7 +58,9 @@ SFTP_REMOTE_FOLDER = /upload/inbox/Featured/
 [WORDPRESS]
 WP_URL = 
 WP_USERNAME = 
-WP_PASSWORD = 
+# Application Password generated from WordPress admin (Users -> Your Profile -> Application Passwords)
+WP_APP_PASSWORD =
+# WP_PASSWORD = (No longer used by WordPress module; use WP_APP_PASSWORD)
 """)
 
 # ---------- Module Strings ----------
@@ -103,7 +106,6 @@ def load_config():
     return config
 """)
 
-# ---------- file_utils.py ----------
 module_file_utils_code = dedent("""\
 import os
 import shutil
@@ -122,7 +124,6 @@ def enforce_storage_limits(target_folder):
         print(f"[+] Current folder usage for {target_folder}: {total_gb:.2f} GB (OK)")
 """)
 
-# ---------- sanitation_utils.py ----------
 module_sanitation_utils_code = dedent("""\
 import re
 
@@ -141,7 +142,6 @@ def clean_text(text):
     return '\\n'.join(clean)
 """)
 
-# ---------- email_utils.py ----------
 module_email_utils_code = dedent("""\
 import imaplib
 import email
@@ -221,7 +221,6 @@ def fetch_emails_and_extract(config):
     return results
 """)
 
-# ---------- doc_utils.py ----------
 module_doc_utils_code = dedent("""\
 import os
 import logging
@@ -251,7 +250,6 @@ def convert_documents_to_text(folder):
         logging.warning(f"Document conversion failed: {e}")
 """)
 
-# ---------- audio_utils.py ----------
 module_audio_utils_code = dedent("""\
 import os
 import logging
@@ -285,7 +283,6 @@ def process_audio_files(folder, config, processed_list):
                 audio.tags.add(TIT2(encoding=3, text=title.strip()))
                 audio.tags.add(TCON(encoding=3, text=genre))
 
-                # Embed album art if available
                 for art_file in os.listdir(folder):
                     if art_file.startswith("album_art") and art_file.endswith(('.jpg', '.jpeg', '.png')):
                         art_path = os.path.join(folder, art_file)
@@ -298,7 +295,6 @@ def process_audio_files(folder, config, processed_list):
                                 data=img.read()
                             ))
                         break
-
                 audio.save()
                 processed_list.append(f"{base}.mp3")
                 logging.info(f"Processed & tagged audio: {file}")
@@ -308,7 +304,6 @@ def process_audio_files(folder, config, processed_list):
     return False
 """)
 
-# ---------- sftp_utils.py ----------
 module_sftp_utils_code = dedent("""\
 import os
 import logging
@@ -329,41 +324,34 @@ def upload_sftp_files(file_list):
         transport = paramiko.Transport((host, port))
         transport.connect(username=username, password=password)
         sftp = paramiko.SFTPClient.from_transport(transport)
-
         uploaded = 0
         failed = 0
-
         for filename in file_list:
             local_path = os.path.join(local_folder, filename)
             remote_filename = filename.replace(" ", "_")
             remote_fullpath = os.path.join(remote_path, remote_filename)
-
             if not os.path.isfile(local_path):
                 logging.error(f"Missing for upload: {local_path}")
                 failed += 1
                 continue
-
             try:
                 sftp.put(local_path, remote_fullpath)
                 uploaded += 1
             except Exception as e:
                 logging.error(f"SFTP upload failed for {filename}: {e}")
                 failed += 1
-
         sftp.close()
         transport.close()
         logging.info(f"SFTP Upload Summary: {uploaded} success, {failed} failed")
-
     except Exception as e:
         logging.error(f"SFTP connection error: {e}")
 """)
 
-# ---------- wordpress_utils.py ----------
 module_wordpress_utils_code = dedent("""\
 import os
 import logging
-from wordpress_xmlrpc import Client, WordPressPost
-from wordpress_xmlrpc.methods.posts import NewPost
+import requests
+from requests.auth import HTTPBasicAuth
 from modules.config import load_config
 from modules.constants import FOLDER_PATHS
 
@@ -371,7 +359,7 @@ def post_to_wordpress(folder, job_id):
     config = load_config()
     wp_url = config['WORDPRESS']['WP_URL']
     wp_user = config['WORDPRESS']['WP_USERNAME']
-    wp_pass = config['WORDPRESS']['WP_PASSWORD']
+    wp_app_password = config['WORDPRESS']['WP_APP_PASSWORD']
 
     text_file = os.path.join(folder, f"{job_id}.txt")
     if not os.path.isfile(text_file):
@@ -381,21 +369,148 @@ def post_to_wordpress(folder, job_id):
     with open(text_file, 'r') as f:
         content = f.read()
 
+    api_url = f"{wp_url.rstrip('/')}/wp-json/wp/v2/posts"
+    data = {
+        'title': job_id.replace("_", " "),
+        'content': content,
+        'status': 'draft'
+    }
+    auth = HTTPBasicAuth(wp_user, wp_app_password)
+
     try:
-        client = Client(wp_url, wp_user, wp_pass)
-        post = WordPressPost()
-        post.title = job_id.replace("_", " ")
-        post.content = content
-        post.post_status = 'draft'
-        client.call(NewPost(post))
-        logging.info(f"WordPress post created: {job_id}")
+        response = requests.post(api_url, data=data, auth=auth, timeout=30)
+        response.raise_for_status()
+        logging.info(f"WordPress post created via REST API: {job_id}, Status: {response.status_code}")
         return True
-    except Exception as e:
-        logging.error(f"WordPress post failed for {job_id}: {e}")
+    except requests.exceptions.HTTPError as e:
+        logging.error(f"WordPress REST API post failed for {job_id}: HTTP Error: {e.response.status_code} - {e.response.text}")
+        return False
+    except requests.exceptions.RequestException as e:
+        logging.error(f"WordPress REST API post failed for {job_id}: {e}")
         return False
 """)
 
-# ---------- ingest.py ----------
+module_test_wordpress_utils_code = dedent("""\
+import unittest
+from unittest.mock import patch, mock_open, MagicMock
+import os
+import logging
+
+# Adjust the import path based on your project structure if necessary
+from modules.wordpress_utils import post_to_wordpress
+from modules.config import load_config # To be mocked
+from requests.exceptions import HTTPError, RequestException
+
+# Suppress logging output during tests for cleaner test results
+logging.disable(logging.CRITICAL)
+
+class TestWordPressUtils(unittest.TestCase):
+
+    @patch('modules.wordpress_utils.load_config')
+    @patch('modules.wordpress_utils.requests.post')
+    @patch('modules.wordpress_utils.os.path.isfile')
+    @patch('modules.wordpress_utils.open', new_callable=mock_open, read_data="Test content")
+    def test_post_to_wordpress_success(self, mock_file_open, mock_isfile, mock_requests_post, mock_load_config):
+        # Setup mock config
+        mock_load_config.return_value = {
+            'WORDPRESS': {
+                'WP_URL': 'http://example.com',
+                'WP_USERNAME': 'testuser',
+                'WP_APP_PASSWORD': 'testpassword'
+            }
+        }
+
+        # Mock os.path.isfile to return True (file exists)
+        mock_isfile.return_value = True
+
+        # Mock requests.post response for success
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.raise_for_status = MagicMock() # Ensure it doesn't raise for success
+        mock_requests_post.return_value = mock_response
+
+        result = post_to_wordpress('/fake/folder', 'test_job_id')
+
+        self.assertTrue(result)
+        mock_requests_post.assert_called_once()
+        args, kwargs = mock_requests_post.call_args
+        self.assertEqual(args[0], 'http://example.com/wp-json/wp/v2/posts')
+        self.assertEqual(kwargs['data']['title'], 'test job id')
+        self.assertEqual(kwargs['data']['content'], 'Test content')
+        self.assertEqual(kwargs['data']['status'], 'draft')
+        self.assertEqual(kwargs['auth'].username, 'testuser')
+        self.assertEqual(kwargs['auth'].password, 'testpassword')
+
+    @patch('modules.wordpress_utils.load_config')
+    @patch('modules.wordpress_utils.os.path.isfile')
+    def test_post_to_wordpress_file_not_found(self, mock_isfile, mock_load_config):
+        # Setup mock config
+        mock_load_config.return_value = {
+            'WORDPRESS': {
+                'WP_URL': 'http://example.com',
+                'WP_USERNAME': 'testuser',
+                'WP_APP_PASSWORD': 'testpassword'
+            }
+        }
+        # Mock os.path.isfile to return False (file does not exist)
+        mock_isfile.return_value = False
+
+        result = post_to_wordpress('/fake/folder', 'test_job_id')
+        self.assertFalse(result)
+
+    @patch('modules.wordpress_utils.load_config')
+    @patch('modules.wordpress_utils.requests.post')
+    @patch('modules.wordpress_utils.os.path.isfile')
+    @patch('modules.wordpress_utils.open', new_callable=mock_open, read_data="Test content")
+    def test_post_to_wordpress_http_error(self, mock_file_open, mock_isfile, mock_requests_post, mock_load_config):
+        # Setup mock config
+        mock_load_config.return_value = {
+            'WORDPRESS': {
+                'WP_URL': 'http://example.com',
+                'WP_USERNAME': 'testuser',
+                'WP_APP_PASSWORD': 'testpassword'
+            }
+        }
+        mock_isfile.return_value = True
+
+        # Mock requests.post to raise HTTPError
+        mock_response = MagicMock()
+        mock_response.status_code = 401 # Example: Unauthorized
+        mock_response.text = "Client error: Unauthorized"
+        http_error = HTTPError(response=mock_response)
+        mock_response.raise_for_status = MagicMock(side_effect=http_error)
+        mock_requests_post.return_value = mock_response
+
+        result = post_to_wordpress('/fake/folder', 'test_job_id_http_error')
+        self.assertFalse(result)
+        mock_requests_post.assert_called_once()
+
+    @patch('modules.wordpress_utils.load_config')
+    @patch('modules.wordpress_utils.requests.post')
+    @patch('modules.wordpress_utils.os.path.isfile')
+    @patch('modules.wordpress_utils.open', new_callable=mock_open, read_data="Test content")
+    def test_post_to_wordpress_request_exception(self, mock_file_open, mock_isfile, mock_requests_post, mock_load_config):
+        # Setup mock config
+        mock_load_config.return_value = {
+            'WORDPRESS': {
+                'WP_URL': 'http://example.com',
+                'WP_USERNAME': 'testuser',
+                'WP_APP_PASSWORD': 'testpassword'
+            }
+        }
+        mock_isfile.return_value = True
+
+        # Mock requests.post to raise RequestException
+        mock_requests_post.side_effect = RequestException("Connection timed out")
+
+        result = post_to_wordpress('/fake/folder', 'test_job_id_req_exception')
+        self.assertFalse(result)
+        mock_requests_post.assert_called_once()
+
+if __name__ == '__main__':
+    unittest.main()
+""")
+
 module_ingest_code = dedent("""\
 import os
 import time
@@ -461,56 +576,107 @@ if __name__ == "__main__":
 """)
 
 # ---------- Module Writer ----------
-def write_module(filename, code):
-    path = os.path.join(MODULES_DIR, filename)
+# Modified to write_file(base_dir, filename, code)
+def write_file(base_dir, filename, code):
+    # Ensure parent directory of base_dir itself is created if base_dir is like '~/INGEST/modules'
+    # os.makedirs(os.path.expanduser(base_dir), exist_ok=True) # This line is actually not needed if create_folders() handles all base_dirs
+    path = os.path.join(os.path.expanduser(base_dir), filename)
+    # Ensure parent directory of the file itself is created
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(code)
-    print(f"[+] Rewritten: {filename}")
+    print(f"[+] Rewritten: {path}")
 
 def write_all_modules():
-    write_module("constants.py", module_constants_code)
-    write_module("logs.py", module_logs_code)
-    write_module("config.py", module_config_code)
-    write_module("file_utils.py", module_file_utils_code)
-    write_module("sanitation_utils.py", module_sanitation_utils_code)
-    write_module("email_utils.py", module_email_utils_code)
-    write_module("doc_utils.py", module_doc_utils_code)
-    write_module("audio_utils.py", module_audio_utils_code)
-    write_module("sftp_utils.py", module_sftp_utils_code)
-    write_module("wordpress_utils.py", module_wordpress_utils_code)
-    with open(os.path.expanduser("~/INGEST/ingest.py"), "w") as f:
-        f.write(module_ingest_code)
-    print("[+] Rewritten: ingest.py")
+    # MODULES_DIR is "~/INGEST/modules"
+    # CONFIG_PATH is "~/INGEST/config.ini"
+    # ingest.py is in "~/INGEST/ingest.py"
+    # tests dir is "~/INGEST/tests"
+
+    modules_base_dir = "~/INGEST/modules"
+    ingest_base_dir = "~/INGEST"
+    tests_base_dir = "~/INGEST/tests"
+
+    write_file(modules_base_dir, "constants.py", module_constants_code)
+    write_file(modules_base_dir, "logs.py", module_logs_code)
+    write_file(modules_base_dir, "config.py", module_config_code)
+    write_file(modules_base_dir, "file_utils.py", module_file_utils_code)
+    write_file(modules_base_dir, "sanitation_utils.py", module_sanitation_utils_code)
+    write_file(modules_base_dir, "email_utils.py", module_email_utils_code)
+    write_file(modules_base_dir, "doc_utils.py", module_doc_utils_code)
+    write_file(modules_base_dir, "audio_utils.py", module_audio_utils_code)
+    write_file(modules_base_dir, "sftp_utils.py", module_sftp_utils_code)
+    write_file(modules_base_dir, "wordpress_utils.py", module_wordpress_utils_code)
+
+    # Write ingest.py
+    write_file(ingest_base_dir, "ingest.py", module_ingest_code)
+    print("[+] Rewritten: ingest.py (using write_file)") # Explicitly confirming ingest.py rewrite
+
+    # Write the new test file
+    write_file(tests_base_dir, "test_wordpress_utils.py", module_test_wordpress_utils_code)
+
 
 # ---------- Install Steps ----------
 def create_folders():
-    for folder in FOLDERS:
-        path = os.path.expanduser(folder)
+    for folder_path_str in FOLDERS: # folder_path_str since 'folder' is used as var name in some module codes
+        path = os.path.expanduser(folder_path_str)
         os.makedirs(path, exist_ok=True)
         print(f"[+] Ensured folder exists: {path}")
 
 def install_dependencies():
     for package in REQUIRED_PACKAGES:
         try:
-            __import__(package.replace('-', '_'))
+            # Attempt to import the top-level module name used by the package
+            # This is a heuristic and might not be perfect for all package names
+            import_name = package.replace('-', '_').split('.')[0]
+            __import__(import_name)
         except ImportError:
-            print(f"[!] Missing package '{package}' - installing...")
-            subprocess.run(["pip3", "install", package])
+            print(f"[!] Missing package '{package}' (tried importing '{import_name}') - installing...")
+            subprocess.run(["pip3", "install", package], check=True) # Added check=True
 
 def write_config():
+    # CONFIG_PATH is already expanded
     with open(CONFIG_PATH, "w") as f:
         f.write(config_ini)
-    print("[+] Rewritten: config.ini")
+    print(f"[+] Rewritten: {CONFIG_PATH}")
+
 
 # ---------- Main ----------
 def main():
-    print("[+] Logging started in repair_patch.log")
-    create_folders()
-    install_dependencies()
-    write_config()
-    write_all_modules()
-    print("[?] All essential scripts and modules rebuilt.")
-    print("[?] Repair patch complete.")
+    log_filename = os.path.expanduser("~/INGEST/repair_patch.log") # Define log_filename
+    # Simple file logging for the repair script itself
+    logging.basicConfig(filename=log_filename,
+                        level=logging.INFO,
+                        format='%(asctime)s - %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S')
+    print(f"[+] Logging repair script actions to {log_filename}")
+    logging.info("Repair script started.")
+
+    try:
+        create_folders()
+        logging.info("Folder creation step completed.")
+
+        install_dependencies()
+        logging.info("Dependency installation step completed.")
+
+        write_config()
+        logging.info("Config file writing step completed.")
+
+        write_all_modules()
+        logging.info("Module and script writing step completed.")
+
+        print("[?] All essential scripts and modules rebuilt.")
+        logging.info("All essential scripts and modules rebuilt.")
+
+        print("[?] Repair patch complete.")
+        logging.info("Repair patch complete.")
+
+    except Exception as e:
+        error_message = f"An error occurred during the repair process: {e}"
+        print(f"[!] {error_message}")
+        logging.error(error_message)
+        # Optionally, re-raise the exception if you want the script to exit with an error code
+        # raise
 
 if __name__ == "__main__":
     main()
