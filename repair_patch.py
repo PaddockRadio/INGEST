@@ -5,6 +5,7 @@
 
 import os
 import subprocess
+import logging
 from textwrap import dedent
 
 # ---------- Paths ----------
