@@ -1,5 +1,4 @@
 import os
-import shutil
 
 def enforce_storage_limits(target_folder):
     total_size = 0

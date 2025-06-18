@@ -10,7 +10,6 @@ from textwrap import dedent
 
 # ---------- Paths ----------
 CONFIG_PATH = os.path.expanduser("~/INGEST/config.ini")
-# MODULES_DIR = os.path.expanduser("~/INGEST/modules") # No longer strictly needed if write_file uses full base paths
 FOLDERS = [
     "~/INGEST/Temp",
     "~/INGEST/Working",
@@ -109,7 +108,6 @@ def load_config():
 
 module_file_utils_code = dedent("""\
 import os
-import shutil
 
 def enforce_storage_limits(target_folder):
     total_size = 0
@@ -357,6 +355,17 @@ from modules.config import load_config
 from modules.constants import FOLDER_PATHS
 
 def post_to_wordpress(folder, job_id):
+    \"\"\"
+    Creates a new draft post on WordPress using the REST API.
+
+    Args:
+        folder (str): The path to the folder containing the '{job_id}.txt' file.
+        job_id (str): The identifier for the job, used for the post title
+                      and the content filename.
+
+    Returns:
+        bool: True if the post was created successfully, False otherwise.
+    \"\"\"
     config = load_config()
     wp_url = config['WORDPRESS']['WP_URL']
     wp_user = config['WORDPRESS']['WP_USERNAME']
@@ -542,7 +551,7 @@ def main():
         subject = result['subject']
         logging.info(f"Processing: {subject}")
         convert_documents_to_text(folder)
-        audio_ok = process_audio_files(folder, config, processed_audio_jobs)
+        process_audio_files(folder, config, processed_audio_jobs) # Changed this line
         job_id = os.path.basename(folder)
         publish_file = os.path.join(folder, "publish.txt")
         body_file = os.path.join(folder, "body.txt")

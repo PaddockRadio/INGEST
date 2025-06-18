@@ -27,7 +27,7 @@ def main():
         subject = result['subject']
         logging.info(f"Processing: {subject}")
         convert_documents_to_text(folder)
-        audio_ok = process_audio_files(folder, config, processed_audio_jobs)
+        process_audio_files(folder, config, processed_audio_jobs)
         job_id = os.path.basename(folder)
         publish_file = os.path.join(folder, "publish.txt")
         body_file = os.path.join(folder, "body.txt")

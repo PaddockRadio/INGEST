@@ -6,6 +6,17 @@ from modules.config import load_config
 from modules.constants import FOLDER_PATHS
 
 def post_to_wordpress(folder, job_id):
+    """
+    Creates a new draft post on WordPress using the REST API.
+
+    Args:
+        folder (str): The path to the folder containing the '{job_id}.txt' file.
+        job_id (str): The identifier for the job, used for the post title
+                      and the content filename.
+
+    Returns:
+        bool: True if the post was created successfully, False otherwise.
+    """
     config = load_config()
     wp_url = config['WORDPRESS']['WP_URL']
     wp_user = config['WORDPRESS']['WP_USERNAME']
