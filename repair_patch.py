@@ -60,7 +60,6 @@ WP_URL =
 WP_USERNAME = 
 # Application Password generated from WordPress admin (Users -> Your Profile -> Application Passwords)
 WP_APP_PASSWORD =
-# WP_PASSWORD = (No longer used by WordPress module; use WP_APP_PASSWORD)
 """)
 
 # ---------- Module Strings ----------
